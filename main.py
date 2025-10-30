@@ -6,7 +6,7 @@ import requests
 import random
 from datetime import datetime, timedelta
 from threading import Thread
-from flask import Flask, render_template_string
+from flask import Flask
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -62,16 +62,37 @@ def send_telegram_message(message, pair):
     except Exception as e:
         logging.error(f"Errore Telegram: {e}")
 
-# === DATI MOCK ===
+# === DATI REALI (API) ===
+def get_common_pairs():
+    """Recupera coppie comuni tra MEXC e LBank"""
+    try:
+        mexc_url = "https://api.mexc.com/api/v3/exchangeInfo"
+        lbank_url = "https://api.lbkex.com/v2/currencyPairs.do"
+
+        mexc_data = requests.get(mexc_url, timeout=10).json()
+        lbank_data = requests.get(lbank_url, timeout=10).json()
+
+        mexc_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in mexc_data["symbols"]}
+        lbank_pairs = {item.upper().replace("_", "").replace("-", "") for item in lbank_data.get("data", [])}
+
+        # Trova coppie comuni
+        common = list(mexc_pairs & lbank_pairs)
+        common = [pair.replace("USDT", "/USDT") for pair in common if pair.endswith("USDT")][:200]
+
+        logging.info(f"✅ Trovate {len(common)} coppie comuni MEXC/LBank.")
+        return common
+    except Exception as e:
+        logging.error(f"Errore nel recupero coppie: {e}")
+        return [f"COIN{i}/USDT" for i in range(1, 51)]
+
+# === MOCK PREZZI (qui potresti mettere API reali) ===
 def get_random_price():
     return round(100 + random.uniform(-5, 5), 2)
-
-def get_common_pairs():
-    return [f"COIN{i}/USDT" for i in range(1, 201)]
 
 # === STATO GLOBALE ===
 pairs_data = []
 last_update = None
+last_pairs_update = None
 
 # === DASHBOARD CLI ===
 def print_dashboard(pairs_data):
@@ -93,11 +114,13 @@ def print_dashboard(pairs_data):
 
 # === LOOP PRINCIPALE ===
 def arbitrage_loop():
-    global pairs_data, last_update
+    global pairs_data, last_update, last_pairs_update
     logging.info("🚀 Avvio bot arbitraggio multi-coppia")
-    pairs = get_common_pairs()
 
     while True:
+        pairs = get_common_pairs()
+        last_pairs_update = datetime.now()
+
         temp_data = []
         for pair in pairs:
             price_mexc = get_random_price()
@@ -151,16 +174,18 @@ def home():
             th {{ color: #58a6ff; }}
             .green {{ color: #3fb950; }}
             .red {{ color: #f85149; }}
+            .info {{ color: #8b949e; }}
         </style>
     </head>
     <body>
         <h1>📊 Futures Arbitrage Dashboard</h1>
-        <p>Ultimo aggiornamento: {last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else 'N/A'}</p>
+        <p class='info'>Ultimo aggiornamento dati: {last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else 'N/A'}</p>
+        <p class='info'>Ultimo aggiornamento coppie da API: {last_pairs_update.strftime('%Y-%m-%d %H:%M:%S') if last_pairs_update else 'N/A'}</p>
         <table>
             <tr><th>Coppia</th><th>MEXC</th><th>LBank</th><th>Spread %</th><th>Azione</th></tr>
             {''.join(f"<tr><td>{p[0]}</td><td>{p[1]:.2f}</td><td>{p[2]:.2f}</td><td class='{'green' if p[3]>0 else 'red'}'>{p[3]:.2f}%</td><td>{p[4]}</td></tr>" for p in pairs_data[:20])}
         </table>
-        <p style='color:#8b949e;'>Aggiornamento automatico ogni 30s</p>
+        <p class='info'>Aggiornamento automatico ogni 30 secondi</p>
     </body>
     </html>
     """
