@@ -309,44 +309,96 @@ def render_cli_dashboard():
     console.print(f"[bold cyan]Last prices updated:[/bold cyan] {last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else 'N/A'}")
 
 # ========= FLASK DASHBOARD =========
+from flask import Response
+
 @app.route("/")
 def web_home():
-    with pairs_lock:
-        rows = pairs_data[:50]
-        lu = last_update.strftime("%Y-%m-%d %H:%M:%S") if last_update else "N/A"
-        lp = last_pairs_update.strftime("%Y-%m-%d %H:%M:%S") if last_pairs_update else "N/A"
-
-    rows_html = "".join(
-        f"<tr><td>{r['base']}</td><td>{r['mexc_sym']}</td><td>{r['lbank_sym']}</td><td class='{'green' if r['spread']>0 else 'red'}'>{r['spread']:.2f}%</td><td>{r['action']}</td></tr>"
-        for r in rows
-    )
-
-    html = f"""
+    html = """
     <html>
     <head>
-      <meta http-equiv="refresh" content="30">
+      <title>📊 Perpetual Futures Arbitrage</title>
       <style>
-        body{{background:#0b1220;color:#c9d1d9;font-family:Consolas,monospace;padding:18px}}
-        table{{width:100%;border-collapse:collapse}}
-        th,td{{padding:8px;text-align:center;border-bottom:1px solid #26313a}}
-        th{{color:#58a6ff}}
-        .green{{color:#3fb950}}
-        .red{{color:#f85149}}
-        .info{{color:#8b949e}}
+        body{background:#0b1220;color:#c9d1d9;font-family:Consolas,monospace;padding:18px}
+        table{width:100%;border-collapse:collapse}
+        th,td{padding:8px;text-align:center;border-bottom:1px solid #26313a}
+        th{color:#58a6ff}
+        .green{color:#3fb950}
+        .red{color:#f85149}
+        .info{color:#8b949e}
+        button{background:#21262d;color:#58a6ff;border:none;padding:8px 12px;cursor:pointer;border-radius:6px;margin-bottom:10px}
+        button:hover{background:#30363d}
       </style>
     </head>
     <body>
       <h1>📊 Perpetual Futures Arbitrage (MEXC ⇄ LBank)</h1>
-      <p class='info'>Last pairs refresh: {lp} — Last prices: {lu}</p>
-      <table>
+      <button onclick="manualRefresh()">🔄 Aggiorna ora</button>
+      <p class='info' id='info'></p>
+      <table id='data'>
         <tr><th>Base</th><th>MEXC sym</th><th>LBank sym</th><th>Spread %</th><th>Action</th></tr>
-        {rows_html}
       </table>
-      <p class='info'>Auto-refresh every 30s</p>
+
+      <script>
+        const table = document.getElementById('data');
+        const info = document.getElementById('info');
+
+        function updateTable(data) {
+          // pulisci vecchie righe
+          table.innerHTML = "<tr><th>Base</th><th>MEXC sym</th><th>LBank sym</th><th>Spread %</th><th>Action</th></tr>";
+          for (const r of data.rows) {
+            const color = r.spread > 0 ? 'green' : 'red';
+            const row = `<tr>
+              <td>${r.base}</td>
+              <td>${r.mexc_sym}</td>
+              <td>${r.lbank_sym}</td>
+              <td class='${color}'>${r.spread.toFixed(2)}%</td>
+              <td>${r.action}</td>
+            </tr>`;
+            table.insertAdjacentHTML('beforeend', row);
+          }
+          info.innerText = `Ultimo aggiornamento: ${data.last_update}`;
+        }
+
+        // EventSource per aggiornamenti live
+        const evtSource = new EventSource('/stream');
+        evtSource.onmessage = function(event) {
+          const data = JSON.parse(event.data);
+          updateTable(data);
+        };
+
+        function manualRefresh() {
+          fetch('/data').then(r => r.json()).then(updateTable);
+        }
+      </script>
     </body>
     </html>
     """
     return html
+
+
+@app.route("/data")
+def web_data():
+    with pairs_lock:
+        rows = pairs_data[:50]
+        lu = last_update.strftime("%Y-%m-%d %H:%M:%S") if last_update else "N/A"
+
+    return {
+        "last_update": lu,
+        "rows": rows
+    }
+
+
+@app.route("/stream")
+def stream():
+    def event_stream():
+        last_sent = None
+        while True:
+            time.sleep(2)  # aggiorna ogni 2s
+            with pairs_lock:
+                lu = last_update.strftime("%Y-%m-%d %H:%M:%S") if last_update else "N/A"
+                rows = pairs_data[:50]
+            data = {"last_update": lu, "rows": rows}
+            yield f"data: {json.dumps(data)}\n\n"
+    return Response(event_stream(), mimetype="text/event-stream")
 
 # ========= STARTUP =========
 def start_async_loop_in_thread():
@@ -363,6 +415,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     logging.info(f"Starting Flask on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
