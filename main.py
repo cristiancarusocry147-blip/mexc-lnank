@@ -62,35 +62,44 @@ def send_telegram_message(message, pair):
     except Exception as e:
         logging.error(f"Errore Telegram: {e}")
 
-# === DATI REALI (API) ===
+# === MEXC + LBANK FUTURES PERPETUAL ===
 def get_common_pairs():
     """Recupera coppie comuni tra futures perpetual di MEXC e LBank"""
     try:
-        # === MEXC Futures (USDT-M Perpetual) ===
         mexc_url = "https://contract.mexc.com/api/v1/contract/detail"
-        mexc_data = requests.get(mexc_url, timeout=10).json()
-        mexc_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in mexc_data.get("data", [])}
-
-        # === LBank Futures (Perpetual) ===
         lbank_url = "https://www.lbkex.net/v2/futures/contracts.do"
+
+        mexc_data = requests.get(mexc_url, timeout=10).json()
         lbank_data = requests.get(lbank_url, timeout=10).json()
+
+        mexc_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in mexc_data.get("data", [])}
         lbank_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in lbank_data.get("data", [])}
 
-        # Trova coppie comuni
         common = list(mexc_pairs & lbank_pairs)
         common = [pair.replace("USDT", "/USDT") for pair in common if pair.endswith("USDT")][:200]
 
         logging.info(f"✅ Trovate {len(common)} coppie futures perpetual comuni MEXC/LBank.")
         return common
-
     except Exception as e:
         logging.error(f"Errore nel recupero coppie futures: {e}")
         return []
 
-# === STATO GLOBALE ===
-pairs_data = []
-last_update = None
-last_pairs_update = None
+# === PREZZI ===
+def get_futures_price_mexc(symbol):
+    url = f"https://contract.mexc.com/api/v1/contract/fair_price/{symbol.replace('/', '_')}"
+    try:
+        res = requests.get(url, timeout=10).json()
+        return float(res["data"]["fairPrice"])
+    except:
+        return None
+
+def get_futures_price_lbank(symbol):
+    url = f"https://api.lbkex.net/v2/futures/ticker.do?symbol={symbol.replace('/', '_')}"
+    try:
+        res = requests.get(url, timeout=10).json()
+        return float(res["data"]["lastPrice"])
+    except:
+        return None
 
 # === DASHBOARD CLI ===
 def print_dashboard(pairs_data):
@@ -199,6 +208,7 @@ if __name__ == "__main__":
     t = Thread(target=arbitrage_loop, daemon=True)
     t.start()
     start_flask()
+
 
 
 
