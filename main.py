@@ -64,30 +64,28 @@ def send_telegram_message(message, pair):
 
 # === DATI REALI (API) ===
 def get_common_pairs():
-    """Recupera coppie comuni tra MEXC e LBank"""
+    """Recupera coppie comuni tra futures perpetual di MEXC e LBank"""
     try:
-        mexc_url = "https://api.mexc.com/api/v3/exchangeInfo"
-        lbank_url = "https://api.lbkex.com/v2/currencyPairs.do"
-
+        # === MEXC Futures (USDT-M Perpetual) ===
+        mexc_url = "https://contract.mexc.com/api/v1/contract/detail"
         mexc_data = requests.get(mexc_url, timeout=10).json()
-        lbank_data = requests.get(lbank_url, timeout=10).json()
+        mexc_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in mexc_data.get("data", [])}
 
-        mexc_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in mexc_data["symbols"]}
-        lbank_pairs = {item.upper().replace("_", "").replace("-", "") for item in lbank_data.get("data", [])}
+        # === LBank Futures (Perpetual) ===
+        lbank_url = "https://www.lbkex.net/v2/futures/contracts.do"
+        lbank_data = requests.get(lbank_url, timeout=10).json()
+        lbank_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in lbank_data.get("data", [])}
 
         # Trova coppie comuni
         common = list(mexc_pairs & lbank_pairs)
         common = [pair.replace("USDT", "/USDT") for pair in common if pair.endswith("USDT")][:200]
 
-        logging.info(f"✅ Trovate {len(common)} coppie comuni MEXC/LBank.")
+        logging.info(f"✅ Trovate {len(common)} coppie futures perpetual comuni MEXC/LBank.")
         return common
-    except Exception as e:
-        logging.error(f"Errore nel recupero coppie: {e}")
-        return [f"COIN{i}/USDT" for i in range(1, 51)]
 
-# === MOCK PREZZI (qui potresti mettere API reali) ===
-def get_random_price():
-    return round(100 + random.uniform(-5, 5), 2)
+    except Exception as e:
+        logging.error(f"Errore nel recupero coppie futures: {e}")
+        return []
 
 # === STATO GLOBALE ===
 pairs_data = []
@@ -201,6 +199,7 @@ if __name__ == "__main__":
     t = Thread(target=arbitrage_loop, daemon=True)
     t.start()
     start_flask()
+
 
 
 
