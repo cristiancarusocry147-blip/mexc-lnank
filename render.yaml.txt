@@ -1,0 +1,24 @@
+services:
+  - type: worker
+    name: futures-arbitrage-bot
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "bash start.sh"
+    autoDeploy: true
+
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: "INSERISCI_IL_TUO_TOKEN"
+      - key: TELEGRAM_CHAT_ID
+        value: "INSERISCI_IL_TUO_CHAT_ID"
+      - key: MEXC_API_KEY
+        value: "INSERISCI_API_KEY_MEXC"
+      - key: MEXC_SECRET_KEY
+        value: "INSERISCI_SECRET_MEXC"
+      - key: LBANK_API_KEY
+        value: "INSERISCI_API_KEY_LBANK"
+      - key: LBANK_SECRET_KEY
+        value: "INSERISCI_SECRET_LBANK"
+      - key: ALERT_SPREAD_THRESHOLD
+        value: "3.0"
