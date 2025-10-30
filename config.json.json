@@ -1,0 +1,15 @@
+{
+  "MEXC": {
+    "API_KEY": "your_mexc_api_key",
+    "SECRET_KEY": "your_mexc_secret"
+  },
+  "LBANK": {
+    "API_KEY": "your_lbank_api_key",
+    "SECRET_KEY": "your_lbank_secret"
+  },
+  "TELEGRAM": {
+    "TOKEN": "8471152392:AAHHYjhIcaGV1DVherO5sVYKO8OZubgY4r0",
+    "CHAT_ID": "721323324"
+  },
+  "ALERT_SPREAD_THRESHOLD": 3.0
+}
