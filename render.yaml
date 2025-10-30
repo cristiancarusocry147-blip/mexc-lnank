@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: futures-arbitrage-bot
     env: python
     plan: free
@@ -8,10 +8,14 @@ services:
     autoDeploy: true
 
     envVars:
+      - key: PORT
+        value: "10000"
+
+      # 🔐 Variabili API (meglio impostarle dal pannello Render)
       - key: TELEGRAM_TOKEN
-        value: "INSERISCI_IL_TUO_TOKEN"
+        value: "8471152392:AAHHYjhIcaGV1DVherO5sVYKO8OZubgY4r0"
       - key: TELEGRAM_CHAT_ID
-        value: "INSERISCI_IL_TUO_CHAT_ID"
+        value: "721323324"
       - key: MEXC_API_KEY
         value: "INSERISCI_API_KEY_MEXC"
       - key: MEXC_SECRET_KEY
