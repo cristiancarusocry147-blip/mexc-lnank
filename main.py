@@ -1,7 +1,8 @@
 import os
 import time
-import requests
+import json
 import logging
+import requests
 from datetime import datetime
 from collections import deque
 from rich.console import Console
@@ -12,17 +13,36 @@ from rich.panel import Panel
 from rich.align import Align
 
 # === CONFIG ===
-API_KEY_MEXC = os.getenv("API_KEY_MEXC", "dummy")
-SECRET_KEY_MEXC = os.getenv("SECRET_KEY_MEXC", "dummy")
-API_KEY_LBANK = os.getenv("API_KEY_LBANK", "dummy")
-SECRET_KEY_LBANK = os.getenv("SECRET_KEY_LBANK", "dummy")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-
 console = Console()
+
+# Legge da config.json (se presente), altrimenti da variabili d'ambiente
+config_path = "config.json"
+if os.path.exists(config_path):
+    with open(config_path) as f:
+        config = json.load(f)
+    API_KEY_MEXC = config["MEXC"]["API_KEY"]
+    SECRET_KEY_MEXC = config["MEXC"]["SECRET_KEY"]
+    API_KEY_LBANK = config["LBANK"]["API_KEY"]
+    SECRET_KEY_LBANK = config["LBANK"]["SECRET_KEY"]
+    TELEGRAM_TOKEN = config["TELEGRAM"]["TOKEN"]
+    CHAT_ID = config["TELEGRAM"]["CHAT_ID"]
+    SPREAD_THRESHOLD = config["SETTINGS"]["SPREAD_ALERT_THRESHOLD"]
+    CHECK_INTERVAL = config["SETTINGS"]["CHECK_INTERVAL_MINUTES"] * 60
+    MAX_PAIRS = config["SETTINGS"]["MAX_PAIRS"]
+else:
+    API_KEY_MEXC = os.getenv("API_KEY_MEXC")
+    SECRET_KEY_MEXC = os.getenv("SECRET_KEY_MEXC")
+    API_KEY_LBANK = os.getenv("API_KEY_LBANK")
+    SECRET_KEY_LBANK = os.getenv("SECRET_KEY_LBANK")
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+    CHAT_ID = os.getenv("CHAT_ID")
+    SPREAD_THRESHOLD = 3
+    CHECK_INTERVAL = 600
+    MAX_PAIRS = 200
 
 # === TELEGRAM ===
 def send_telegram(msg):
+    """Invia un messaggio Telegram"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logging.warning("Telegram non configurato")
         return
@@ -33,20 +53,26 @@ def send_telegram(msg):
         logging.error(f"Errore Telegram: {e}")
 
 # === API PRICE GETTERS ===
+def normalize_symbol(sym: str) -> str:
+    """Rimuove underscore, trattini e forza maiuscolo"""
+    return sym.replace("_", "").replace("-", "").upper()
+
 def get_mexc_pairs():
     try:
         r = requests.get("https://api.mexc.com/api/v3/exchangeInfo", timeout=10)
         data = r.json()
-        return [s["symbol"] for s in data["symbols"] if s["status"] == "TRADING"]
-    except Exception:
+        return [normalize_symbol(s["symbol"]) for s in data["symbols"] if s["status"] == "TRADING"]
+    except Exception as e:
+        logging.error(f"Errore MEXC pairs: {e}")
         return []
 
 def get_lbank_pairs():
     try:
         r = requests.get("https://api.lbkex.com/v2/currencyPairs.do", timeout=10)
         data = r.json()
-        return [s.replace("_", "").upper() for s in data["data"]]
-    except Exception:
+        return [normalize_symbol(s) for s in data["data"]]
+    except Exception as e:
+        logging.error(f"Errore LBank pairs: {e}")
         return []
 
 def get_price_mexc(symbol):
@@ -58,8 +84,7 @@ def get_price_mexc(symbol):
 
 def get_price_lbank(symbol):
     try:
-        s = symbol.lower()
-        r = requests.get(f"https://api.lbkex.com/v2/ticker.do?symbol={s}", timeout=10)
+        r = requests.get(f"https://api.lbkex.com/v2/ticker.do?symbol={symbol.lower()}", timeout=10)
         d = r.json()
         return float(d["ticker"]["latest"])
     except Exception:
@@ -114,20 +139,26 @@ def main():
             try:
                 mexc_pairs = get_mexc_pairs()
                 lbank_pairs = get_lbank_pairs()
+
+                if not mexc_pairs or not lbank_pairs:
+                    logging.warning("⚠️ Nessuna coppia trovata dalle API. Riprovo tra 10 min...")
+                    time.sleep(CHECK_INTERVAL)
+                    continue
+
                 common = sorted(list(set(mexc_pairs) & set(lbank_pairs)))
-
                 pairs_data = []
-                logging.info(f"Trovate {len(common)} coppie comuni. Analisi prime 200...")
 
-                for symbol in common[:200]:
+                logging.info(f"Trovate {len(common)} coppie comuni. Analisi prime {MAX_PAIRS}...")
+
+                for symbol in common[:MAX_PAIRS]:
                     p_mexc = get_price_mexc(symbol)
-                    p_lbank = get_price_lbank(symbol.lower())
+                    p_lbank = get_price_lbank(symbol)
                     if not p_mexc or not p_lbank:
                         continue
 
                     spread = ((p_lbank - p_mexc) / p_mexc) * 100
                     action = ""
-                    if abs(spread) >= 3:
+                    if abs(spread) >= SPREAD_THRESHOLD:
                         if p_mexc < p_lbank:
                             action = "💹 COMPRA su MEXC / VENDI su LBank"
                         else:
@@ -148,8 +179,8 @@ def main():
                 console.clear()
                 console.print(dashboard)
 
-                logging.info("✅ Ciclo completato. Attendo 10 minuti...")
-                time.sleep(600)
+                logging.info("✅ Ciclo completato. Attendo prossimo aggiornamento...")
+                time.sleep(CHECK_INTERVAL)
 
             except Exception as e:
                 logging.error(f"Errore nel loop: {e}")
