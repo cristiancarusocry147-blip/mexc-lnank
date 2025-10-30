@@ -1,15 +1,19 @@
 {
   "MEXC": {
-    "API_KEY": "your_mexc_api_key",
-    "SECRET_KEY": "your_mexc_secret"
+    "API_KEY": "la_tua_api_key_mexc",
+    "SECRET_KEY": "la_tua_secret_key_mexc"
   },
   "LBANK": {
-    "API_KEY": "your_lbank_api_key",
-    "SECRET_KEY": "your_lbank_secret"
+    "API_KEY": "la_tua_api_key_lbank",
+    "SECRET_KEY": "la_tua_secret_key_lbank"
   },
   "TELEGRAM": {
     "TOKEN": "8471152392:AAHHYjhIcaGV1DVherO5sVYKO8OZubgY4r0",
     "CHAT_ID": "721323324"
   },
-  "ALERT_SPREAD_THRESHOLD": 3.0
+  "SETTINGS": {
+    "SPREAD_ALERT_THRESHOLD": 3,
+    "CHECK_INTERVAL_MINUTES": 10,
+    "MAX_PAIRS": 200
+  }
 }
