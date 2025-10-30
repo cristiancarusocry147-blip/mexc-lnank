@@ -24,8 +24,8 @@ if os.path.exists(config_path):
     SECRET_KEY_MEXC = config["MEXC"]["SECRET_KEY"]
     API_KEY_LBANK = config["LBANK"]["API_KEY"]
     SECRET_KEY_LBANK = config["LBANK"]["SECRET_KEY"]
-    TELEGRAM_TOKEN = config["TELEGRAM"]["TOKEN"]
-    CHAT_ID = config["TELEGRAM"]["CHAT_ID"]
+    TELEGRAM_TOKEN = config["TELEGRAM"]["8471152392:AAHHYjhIcaGV1DVherO5sVYKO8OZubgY4r0"]
+    CHAT_ID = config["TELEGRAM"]["721323324"]
     SPREAD_THRESHOLD = config["SETTINGS"]["SPREAD_ALERT_THRESHOLD"]
     CHECK_INTERVAL = config["SETTINGS"]["CHECK_INTERVAL_MINUTES"] * 60
     MAX_PAIRS = config["SETTINGS"]["MAX_PAIRS"]
@@ -189,4 +189,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
