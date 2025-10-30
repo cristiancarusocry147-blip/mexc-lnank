@@ -4,9 +4,9 @@ import json
 import logging
 import requests
 import random
-from datetime import datetime
-from threading import Thread   # ✅ Import corretto
-from flask import Flask
+from datetime import datetime, timedelta
+from threading import Thread
+from flask import Flask, render_template_string
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -14,11 +14,6 @@ from rich.panel import Panel
 # === FLASK SETUP ===
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "🤖 Arbitrage bot attivo su Render!"
-
-# === COLORI TERMINALE ===
 console = Console()
 
 # === LOGGING ===
@@ -47,26 +42,39 @@ TELEGRAM_TOKEN = config.get("TELEGRAM", {}).get("TOKEN", "")
 CHAT_ID = config.get("TELEGRAM", {}).get("CHAT_ID", "")
 
 # === TELEGRAM ===
-def send_telegram_message(message):
+last_alert_time = {}
+
+def send_telegram_message(message, pair):
+    """Invia messaggio solo se non già inviato di recente"""
+    now = datetime.now()
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logging.warning("Telegram non configurato")
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
+    if pair in last_alert_time and now - last_alert_time[pair] < timedelta(minutes=30):
+        return  # evita spam
     try:
-        requests.post(url, data=payload, timeout=10)
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            data={"chat_id": CHAT_ID, "text": message},
+            timeout=10
+        )
+        last_alert_time[pair] = now
+        logging.info(f"📨 Notifica Telegram inviata per {pair}")
     except Exception as e:
         logging.error(f"Errore Telegram: {e}")
 
-# === MOCK PREZZI ===
+# === MOCK DATI ===
 def get_random_price():
     return round(100 + random.uniform(-5, 5), 2)
 
 def get_common_pairs():
-    # Simuliamo 200 coppie comuni
     return [f"COIN{i}/USDT" for i in range(1, 201)]
 
-# === DASHBOARD ===
+# === STATO GLOBALE ===
+pairs_data = []
+last_update = None
+
+# === DASHBOARD CLI ===
 def print_dashboard(pairs_data):
     console.clear()
     console.rule(f"[bold cyan]📊 Futures Arbitrage Dashboard — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -86,14 +94,12 @@ def print_dashboard(pairs_data):
 
 # === LOGICA ARBITRAGGIO ===
 def arbitrage_loop():
+    global pairs_data, last_update
     logging.info("🚀 Avvio bot arbitraggio multi-coppia")
-    send_telegram_message("🚀 Bot arbitraggio multi-coppia avviato!")
-
     pairs = get_common_pairs()
-    logging.info(f"Trovate {len(pairs)} coppie comuni. Analisi prime 200...")
 
     while True:
-        pairs_data = []
+        temp_data = []
         for pair in pairs:
             price_mexc = get_random_price()
             price_lbank = get_random_price()
@@ -101,20 +107,65 @@ def arbitrage_loop():
 
             if spread >= 3:
                 action = "🟢 Compra su MEXC / Vendi su LBank"
-                send_telegram_message(f"🚨 {pair}: Spread +{spread:.2f}% → {action}")
+                send_telegram_message(f"🚨 {pair}: Spread +{spread:.2f}% → {action}", pair)
             elif spread <= -3:
                 action = "🔴 Vendi su MEXC / Compra su LBank"
-                send_telegram_message(f"🚨 {pair}: Spread {spread:.2f}% → {action}")
+                send_telegram_message(f"🚨 {pair}: Spread {spread:.2f}% → {action}", pair)
             else:
                 action = "💤 Nessuna azione"
 
-            pairs_data.append((pair, price_mexc, price_lbank, spread, action))
+            temp_data.append((pair, price_mexc, price_lbank, spread, action))
 
-        # Ordina per spread più alto
-        pairs_data = sorted(pairs_data, key=lambda x: abs(x[3]), reverse=True)
+        pairs_data = sorted(temp_data, key=lambda x: abs(x[3]), reverse=True)
+        last_update = datetime.now()
         print_dashboard(pairs_data)
         logging.info("✅ Ciclo completato. Attendo 10 minuti...")
-        time.sleep(600)  # 10 minuti
+        time.sleep(600)
+
+# === DASHBOARD WEB ===
+@app.route('/')
+def home():
+    if not pairs_data:
+        return "<h3>⏳ In attesa dei primi dati...</h3>"
+    html = f"""
+    <html>
+    <head>
+        <meta http-equiv="refresh" content="30">
+        <style>
+            body {{
+                background-color: #0d1117;
+                color: #c9d1d9;
+                font-family: 'Consolas', monospace;
+                padding: 20px;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            th, td {{
+                padding: 10px;
+                text-align: center;
+                border-bottom: 1px solid #30363d;
+            }}
+            th {{
+                color: #58a6ff;
+            }}
+            .green {{ color: #3fb950; }}
+            .red {{ color: #f85149; }}
+        </style>
+    </head>
+    <body>
+        <h1>📊 Arbitrage Dashboard</h1>
+        <p>Ultimo aggiornamento: {last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else 'N/A'}</p>
+        <table>
+            <tr><th>Coppia</th><th>MEXC</th><th>LBank</th><th>Spread %</th><th>Azione</th></tr>
+            {''.join(f"<tr><td>{p[0]}</td><td>{p[1]:.2f}</td><td>{p[2]:.2f}</td><td class='{'green' if p[3]>0 else 'red'}'>{p[3]:.2f}%</td><td>{p[4]}</td></tr>" for p in pairs_data[:20])}
+        </table>
+        <p style='color:#8b949e;'>Aggiornamento automatico ogni 30s</p>
+    </body>
+    </html>
+    """
+    return html
 
 # === AVVIO ===
 def start_flask():
@@ -124,6 +175,7 @@ def start_flask():
 if __name__ == "__main__":
     Thread(target=arbitrage_loop, daemon=True).start()
     start_flask()
+
 
 
 
