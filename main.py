@@ -309,8 +309,6 @@ def render_cli_dashboard():
     console.print(f"[bold cyan]Last prices updated:[/bold cyan] {last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else 'N/A'}")
 
 # ========= FLASK DASHBOARD =========
-from flask import Response
-
 @app.route("/")
 def web_home():
     html = """
@@ -342,7 +340,6 @@ def web_home():
         const info = document.getElementById('info');
 
         function updateTable(data) {
-          // pulisci vecchie righe
           table.innerHTML = "<tr><th>Base</th><th>MEXC sym</th><th>LBank sym</th><th>Spread %</th><th>Action</th></tr>";
           for (const r of data.rows) {
             const color = r.spread > 0 ? 'green' : 'red';
@@ -358,13 +355,14 @@ def web_home():
           info.innerText = `Ultimo aggiornamento: ${data.last_update}`;
         }
 
-        // EventSource per aggiornamenti live
+        // Aggiornamento live via SSE
         const evtSource = new EventSource('/stream');
         evtSource.onmessage = function(event) {
           const data = JSON.parse(event.data);
           updateTable(data);
         };
 
+        // Refresh manuale
         function manualRefresh() {
           fetch('/data').then(r => r.json()).then(updateTable);
         }
@@ -380,19 +378,14 @@ def web_data():
     with pairs_lock:
         rows = pairs_data[:50]
         lu = last_update.strftime("%Y-%m-%d %H:%M:%S") if last_update else "N/A"
-
-    return {
-        "last_update": lu,
-        "rows": rows
-    }
+    return {"last_update": lu, "rows": rows}
 
 
 @app.route("/stream")
 def stream():
     def event_stream():
-        last_sent = None
         while True:
-            time.sleep(2)  # aggiorna ogni 2s
+            time.sleep(2)
             with pairs_lock:
                 lu = last_update.strftime("%Y-%m-%d %H:%M:%S") if last_update else "N/A"
                 rows = pairs_data[:50]
@@ -415,6 +408,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     logging.info(f"Starting Flask on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
