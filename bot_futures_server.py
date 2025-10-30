@@ -22,16 +22,18 @@ logging.basicConfig(
     ]
 )
 
-# === CONFIG ===
-with open("config.json") as f:
-    config = json.load(f)
+# === CONFIG (da variabili d'ambiente) ===
+API_KEY_MEXC = os.getenv("API_KEY_MEXC")
+SECRET_KEY_MEXC = os.getenv("SECRET_KEY_MEXC")
+API_KEY_LBANK = os.getenv("API_KEY_LBANK")
+SECRET_KEY_LBANK = os.getenv("SECRET_KEY_LBANK")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-API_KEY_MEXC = config["MEXC"]["API_KEY"]
-SECRET_KEY_MEXC = config["MEXC"]["SECRET_KEY"]
-API_KEY_LBANK = config["LBANK"]["API_KEY"]
-SECRET_KEY_LBANK = config["LBANK"]["SECRET_KEY"]
-TELEGRAM_TOKEN = config["TELEGRAM"]["TOKEN"]
-CHAT_ID = config["TELEGRAM"]["CHAT_ID"]
+# Verifica chiavi
+if not all([TELEGRAM_TOKEN, CHAT_ID]):
+    logging.error("❌ Mancano variabili TELEGRAM_TOKEN o CHAT_ID. Impostale su Render.")
+    raise SystemExit("Errore: Variabili Telegram non trovate")
 
 # === TELEGRAM ===
 def send_telegram_message(message):
@@ -42,14 +44,14 @@ def send_telegram_message(message):
     except Exception as e:
         logging.error(f"Errore Telegram: {e}")
 
-# === FUNZIONE MOCK PREZZI (qui metti la tua logica reale) ===
+# === MOCK PREZZI (sostituisci con API reali) ===
 def get_prices():
-    # Sostituisci con API MEXC / LBank reali
+    # Sostituisci con chiamate reali alle API MEXC / LBank
     price_mexc = 100.0 + (os.urandom(1)[0] % 10) / 10  # 100.0 - 109.9
     price_lbank = 100.0 + (os.urandom(1)[0] % 10) / 10
     return price_mexc, price_lbank
 
-# === DASHBOARD IN CONSOLE ===
+# === DASHBOARD ===
 def print_dashboard(price_mexc, price_lbank, spread, alert_msg):
     os.system("clear")
     print(f"{CYAN}╔══════════════════════════════════════════════════╗{RESET}")
@@ -67,7 +69,7 @@ def print_dashboard(price_mexc, price_lbank, spread, alert_msg):
         print("  💤 Nessun alert attivo.")
     print(f"{CYAN}╚══════════════════════════════════════════════════╝{RESET}")
 
-# === MAIN ===
+# === MAIN LOOP ===
 def main():
     logging.info("✅ Bot futures avviato.")
     send_telegram_message("🚀 Bot futures avviato con successo!")
@@ -82,7 +84,7 @@ def main():
             alert_msg = ""
             if abs(spread) >= 3:
                 now = time.time()
-                # evita spam: massimo 1 notifica ogni 10 minuti
+                # Evita spam: massimo 1 notifica ogni 10 minuti
                 if now - last_alert_time > 600:
                     alert_msg = f"🚨 Spread {spread:.2f}% tra MEXC ({price_mexc:.2f}) e LBank ({price_lbank:.2f})"
                     logging.info(alert_msg)
