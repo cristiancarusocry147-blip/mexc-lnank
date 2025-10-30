@@ -1,3 +1,2 @@
 #!/bin/bash
-echo "Starting futures bot server..."
 python3 bot_futures_server.py
