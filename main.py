@@ -187,7 +187,14 @@ def main():
                 send_telegram(f"⚠️ Errore nel bot: {e}")
                 time.sleep(60)
 
+# === AVVIO ===
+def start_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
-    main()
+    Thread(target=arbitrage_loop, daemon=True).start()
+    start_flask()
+
 
 
