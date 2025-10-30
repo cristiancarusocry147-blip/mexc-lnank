@@ -64,25 +64,41 @@ def send_telegram_message(message, pair):
 
 # === MEXC + LBANK FUTURES PERPETUAL ===
 def get_common_pairs():
-    """Recupera coppie comuni tra futures perpetual di MEXC e LBank"""
-    try:
-        mexc_url = "https://contract.mexc.com/api/v1/contract/detail"
-        lbank_url = "https://www.lbkex.net/v2/futures/contracts.do"
+    """Recupera coppie comuni tra futures perpetual di MEXC e LBank con retry e controllo JSON"""
+    mexc_url = "https://contract.mexc.com/api/v1/contract/detail"
+    lbank_url = "https://www.lbkex.net/v2/futures/contracts.do"
 
-        mexc_data = requests.get(mexc_url, timeout=10).json()
-        lbank_data = requests.get(lbank_url, timeout=10).json()
+    for attempt in range(3):
+        try:
+            mexc_resp = requests.get(mexc_url, timeout=10)
+            lbank_resp = requests.get(lbank_url, timeout=10)
 
-        mexc_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in mexc_data.get("data", [])}
-        lbank_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in lbank_data.get("data", [])}
+            # Verifica risposta valida
+            if mexc_resp.status_code != 200 or lbank_resp.status_code != 200:
+                raise ValueError(f"HTTP Error MEXC={mexc_resp.status_code}, LBank={lbank_resp.status_code}")
 
-        common = list(mexc_pairs & lbank_pairs)
-        common = [pair.replace("USDT", "/USDT") for pair in common if pair.endswith("USDT")][:200]
+            # Controllo contenuto JSON
+            try:
+                mexc_data = mexc_resp.json()
+                lbank_data = lbank_resp.json()
+            except Exception:
+                raise ValueError("Risposta non JSON dalle API")
 
-        logging.info(f"✅ Trovate {len(common)} coppie futures perpetual comuni MEXC/LBank.")
-        return common
-    except Exception as e:
-        logging.error(f"Errore nel recupero coppie futures: {e}")
-        return []
+            mexc_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in mexc_data.get("data", [])}
+            lbank_pairs = {item["symbol"].upper().replace("_", "").replace("-", "") for item in lbank_data.get("data", [])}
+
+            common = list(mexc_pairs & lbank_pairs)
+            common = [pair.replace("USDT", "/USDT") for pair in common if pair.endswith("USDT")][:200]
+
+            logging.info(f"✅ Trovate {len(common)} coppie futures perpetual comuni MEXC/LBank.")
+            return common
+
+        except Exception as e:
+            logging.warning(f"Tentativo {attempt+1}/3 fallito: {e}")
+            time.sleep(2)
+
+    logging.error("❌ Tutti i tentativi falliti nel recupero coppie futures.")
+    return []
 
 # === PREZZI ===
 def get_futures_price_mexc(symbol):
@@ -208,6 +224,7 @@ if __name__ == "__main__":
     t = Thread(target=arbitrage_loop, daemon=True)
     t.start()
     start_flask()
+
 
 
 
