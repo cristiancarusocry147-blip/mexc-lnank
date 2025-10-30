@@ -1,18 +1,7 @@
 services:
-  - type: web
-    name: futures-arbitrage-bot
+  - type: worker
+    name: arbitrage-bot
     env: python
-    plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python3 bot_futures_server.py"
-    autoDeploy: true
-
-    envVars:
-      - key: PORT
-        value: "10000"
-      - key: TELEGRAM_TOKEN
-        value: "8471152392:AAHHYjhIcaGV1DVherO5sVYKO8OZubgY4r0"
-      - key: TELEGRAM_CHAT_ID
-        value: "721323324"
-      - key: ALERT_SPREAD_THRESHOLD
-        value: "3.0"
+    startCommand: "python main.py"
+    plan: free
