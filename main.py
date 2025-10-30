@@ -1,179 +1,158 @@
-import json
 import os
 import time
-import logging
 import requests
-import threading
+import logging
 from datetime import datetime
-from flask import Flask
-
-# === FLASK (necessario per Render) ===
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🤖 Arbitrage Bot online e funzionante!"
-
-# === COLORI TERMINALE ===
-RED = "\033[91m"
-GREEN = "\033[92m"
-CYAN = "\033[96m"
-YELLOW = "\033[93m"
-RESET = "\033[0m"
-
-# === LOGGING ===
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("bot.log"),
-        logging.StreamHandler()
-    ]
-)
+from collections import deque
+from rich.console import Console
+from rich.table import Table
+from rich import box
+from rich.live import Live
+from rich.panel import Panel
+from rich.align import Align
+from rich.plot import Plot
 
 # === CONFIG ===
-try:
-    with open("config.json") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    raise SystemExit("❌ File config.json mancante!")
+API_KEY_MEXC = os.getenv("API_KEY_MEXC", "dummy")
+SECRET_KEY_MEXC = os.getenv("SECRET_KEY_MEXC", "dummy")
+API_KEY_LBANK = os.getenv("API_KEY_LBANK", "dummy")
+SECRET_KEY_LBANK = os.getenv("SECRET_KEY_LBANK", "dummy")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-API_KEY_MEXC = config["MEXC"]["API_KEY"]
-SECRET_KEY_MEXC = config["MEXC"]["SECRET_KEY"]
-API_KEY_LBANK = config["LBANK"]["API_KEY"]
-SECRET_KEY_LBANK = config["LBANK"]["SECRET_KEY"]
-TELEGRAM_TOKEN = config["TELEGRAM"]["TOKEN"]
-CHAT_ID = str(config["TELEGRAM"]["CHAT_ID"])
-
-BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-
-# === STATO DEL BOT ===
-alerts_enabled = True  # True = invia alert, False = fermo
+console = Console()
 
 # === TELEGRAM ===
-def send_telegram_message(chat_id, message):
+def send_telegram(msg):
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        logging.warning("Telegram non configurato")
+        return
     try:
-        url = f"{BASE_URL}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message}
-        requests.post(url, data=payload, timeout=10)
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
     except Exception as e:
         logging.error(f"Errore Telegram: {e}")
 
-# === MOCK PREZZI (sostituibile con API reali) ===
-def get_prices():
-    price_mexc = 100.0 + (os.urandom(1)[0] % 10) / 10
-    price_lbank = 100.0 + (os.urandom(1)[0] % 10) / 10
-    return price_mexc, price_lbank
+# === API PRICE GETTERS ===
+def get_mexc_pairs():
+    try:
+        r = requests.get("https://api.mexc.com/api/v3/exchangeInfo", timeout=10)
+        data = r.json()
+        return [s["symbol"] for s in data["symbols"] if s["status"] == "TRADING"]
+    except Exception:
+        return []
+
+def get_lbank_pairs():
+    try:
+        r = requests.get("https://api.lbkex.com/v2/currencyPairs.do", timeout=10)
+        data = r.json()
+        return [s.replace("_", "").upper() for s in data["data"]]
+    except Exception:
+        return []
+
+def get_price_mexc(symbol):
+    try:
+        r = requests.get(f"https://api.mexc.com/api/v3/ticker/price?symbol={symbol}", timeout=10)
+        return float(r.json()["price"])
+    except Exception:
+        return None
+
+def get_price_lbank(symbol):
+    try:
+        s = symbol.lower()
+        r = requests.get(f"https://api.lbkex.com/v2/ticker.do?symbol={s}", timeout=10)
+        d = r.json()
+        return float(d["ticker"]["latest"])
+    except Exception:
+        return None
 
 # === DASHBOARD ===
-def print_dashboard(price_mexc, price_lbank, spread, alert_msg):
-    os.system("clear")
-    print(f"{CYAN}╔══════════════════════════════════════════════════╗{RESET}")
-    print(f"{CYAN}║         FUTURES ARBITRAGE BOT — DASHBOARD        ║{RESET}")
-    print(f"{CYAN}╠══════════════════════════════════════════════════╣{RESET}")
-    print(f"  🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  💰 MEXC:  {YELLOW}{price_mexc:.2f}{RESET}")
-    print(f"  💰 LBank: {YELLOW}{price_lbank:.2f}{RESET}")
-    color = GREEN if spread > 0 else RED
-    print(f"  📈 Spread: {color}{spread:.2f}%{RESET}")
-    print(f"{CYAN}╠══════════════════════════════════════════════════╣{RESET}")
-    if alert_msg:
-        print(f"  ⚡ {alert_msg}")
-    else:
-        print("  💤 Nessun alert attivo.")
-    print(f"{CYAN}╚══════════════════════════════════════════════════╝{RESET}")
+def create_dashboard(pairs_data, spread_history):
+    table = Table(
+        title=f"[bold cyan]Futures Arbitrage Dashboard[/bold cyan] — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        box=box.SIMPLE_HEAVY,
+        show_lines=True,
+        style="bright_white on black",
+    )
+    table.add_column("Coppia", justify="center", style="cyan")
+    table.add_column("MEXC", justify="right", style="yellow")
+    table.add_column("LBank", justify="right", style="yellow")
+    table.add_column("Spread %", justify="right", style="magenta")
+    table.add_column("Azione", justify="center", style="bold green")
 
-# === LISTENER TELEGRAM ===
-def telegram_listener():
-    global alerts_enabled
-    logging.info("🎧 Telegram listener avviato.")
-    offset = None
+    for sym, pm, pl, spread, action in pairs_data:
+        color = "green" if spread > 0 else "red"
+        table.add_row(
+            sym, f"{pm:.4f}", f"{pl:.4f}", f"[{color}]{spread:.2f}%[/{color}]", action
+        )
 
-    while True:
-        try:
-            url = f"{BASE_URL}/getUpdates"
-            params = {"timeout": 30, "offset": offset}
-            resp = requests.get(url, params=params, timeout=35)
-            data = resp.json()
+    # Mini chart spread per le 10 coppie principali
+    plot = Plot(width=70, height=15)
+    for sym, history in spread_history.items():
+        plot.add_series(sym, list(history))
+    chart_panel = Panel(Align.center(plot, vertical="middle"), title="📈 Top 10 Spread Trend")
 
-            if "result" in data:
-                for update in data["result"]:
-                    offset = update["update_id"] + 1
-                    message = update.get("message", {})
-                    chat_id = str(message.get("chat", {}).get("id"))
-                    text = message.get("text", "").strip().lower()
+    layout = Table.grid(expand=True)
+    layout.add_row(table)
+    layout.add_row(chart_panel)
 
-                    if not chat_id or not text:
+    return layout
+
+# === MAIN LOOP ===
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.info("🚀 Avvio bot arbitraggio multi-coppia")
+    send_telegram("🤖 Bot arbitraggio avviato con successo!")
+
+    spread_history = {}
+
+    with Live(console=console, refresh_per_second=0.5, screen=True):
+        while True:
+            try:
+                mexc_pairs = get_mexc_pairs()
+                lbank_pairs = get_lbank_pairs()
+                common = sorted(list(set(mexc_pairs) & set(lbank_pairs)))
+
+                pairs_data = []
+                logging.info(f"Trovate {len(common)} coppie comuni. Analisi prime 200...")
+
+                for symbol in common[:200]:
+                    p_mexc = get_price_mexc(symbol)
+                    p_lbank = get_price_lbank(symbol.lower())
+                    if not p_mexc or not p_lbank:
                         continue
 
-                    # Solo il tuo chat_id può controllare il bot
-                    if chat_id != CHAT_ID:
-                        send_telegram_message(chat_id, "⛔ Non sei autorizzato a usare questo bot.")
-                        continue
+                    spread = ((p_lbank - p_mexc) / p_mexc) * 100
+                    action = ""
+                    if abs(spread) >= 3:
+                        if p_mexc < p_lbank:
+                            action = "💹 COMPRA su MEXC / VENDI su LBank"
+                        else:
+                            action = "💹 COMPRA su LBank / VENDI su MEXC"
+                        msg = f"🚨 {symbol}: spread {spread:.2f}% → {action}"
+                        logging.info(msg)
+                        send_telegram(msg)
 
-                    if text == "/start":
-                        send_telegram_message(chat_id, "👋 Benvenuto nel bot di arbitraggio!\nUsa /help per la lista comandi.")
-                    elif text == "/help":
-                        send_telegram_message(chat_id,
-                            "📚 *Comandi disponibili:*\n"
-                            "/start - Avvia il bot\n"
-                            "/status - Mostra prezzi e spread\n"
-                            "/stop - Ferma gli alert temporaneamente\n"
-                            "/resume - Riattiva gli alert\n"
-                            "/help - Mostra questo messaggio"
-                        )
-                    elif text == "/status":
-                        price_mexc, price_lbank = get_prices()
-                        spread = ((price_lbank - price_mexc) / price_mexc) * 100
-                        status = "🟢 Attivo" if alerts_enabled else "🔴 In pausa"
-                        send_telegram_message(chat_id,
-                            f"💰 MEXC: {price_mexc:.2f}\n💰 LBank: {price_lbank:.2f}\n📈 Spread: {spread:.2f}%\n\n⚙️ Stato alert: {status}"
-                        )
-                    elif text == "/stop":
-                        alerts_enabled = False
-                        send_telegram_message(chat_id, "🛑 Alert sospesi. Il bot continuerà a monitorare ma non invierà notifiche.")
-                    elif text == "/resume":
-                        alerts_enabled = True
-                        send_telegram_message(chat_id, "✅ Alert riattivati. Il bot riprenderà a notificare gli spread.")
-                    else:
-                        send_telegram_message(chat_id, "❓ Comando non riconosciuto. Usa /help.")
-        except Exception as e:
-            logging.error(f"Errore listener Telegram: {e}")
-            time.sleep(5)
+                    pairs_data.append((symbol, p_mexc, p_lbank, spread, action))
 
-# === LOOP PRINCIPALE ===
-def arbitrage_bot():
-    global alerts_enabled
-    logging.info("✅ Bot futures avviato.")
-    send_telegram_message(CHAT_ID, "🚀 Bot futures avviato con successo!")
-    last_alert_time = 0
+                    # Aggiorna storico spread per grafico (solo prime 10 coppie)
+                    if symbol not in spread_history and len(spread_history) < 10:
+                        spread_history[symbol] = deque(maxlen=10)
+                    if symbol in spread_history:
+                        spread_history[symbol].append(spread)
 
-    while True:
-        try:
-            price_mexc, price_lbank = get_prices()
-            spread = ((price_lbank - price_mexc) / price_mexc) * 100
-            alert_msg = ""
+                dashboard = create_dashboard(pairs_data, spread_history)
+                console.clear()
+                console.print(dashboard)
 
-            if alerts_enabled and abs(spread) >= 3:
-                now = time.time()
-                if now - last_alert_time > 600:
-                    alert_msg = f"🚨 Spread {spread:.2f}% tra MEXC ({price_mexc:.2f}) e LBank ({price_lbank:.2f})"
-                    logging.info(alert_msg)
-                    send_telegram_message(CHAT_ID, alert_msg)
-                    last_alert_time = now
+                logging.info("✅ Ciclo completato. Attendo 10 minuti...")
+                time.sleep(600)
 
-            print_dashboard(price_mexc, price_lbank, spread, alert_msg)
-            time.sleep(10)
+            except Exception as e:
+                logging.error(f"Errore nel loop: {e}")
+                send_telegram(f"⚠️ Errore nel bot: {e}")
+                time.sleep(60)
 
-        except Exception as e:
-            logging.error(f"Errore nel loop principale: {e}")
-            send_telegram_message(CHAT_ID, f"⚠️ Errore nel bot: {e}")
-            time.sleep(10)
-
-# === AVVIO ===
 if __name__ == "__main__":
-    threading.Thread(target=arbitrage_bot, daemon=True).start()
-    threading.Thread(target=telegram_listener, daemon=True).start()
-    port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    main()
 
