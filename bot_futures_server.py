@@ -3,7 +3,16 @@ import time
 import logging
 import requests
 import os
+import threading
 from datetime import datetime
+from flask import Flask
+
+# === FLASK SERVER (per Render Free Plan) ===
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Arbitrage Bot is running!", 200
 
 # === COLORI TERMINALE ===
 RED = "\033[91m"
@@ -22,7 +31,7 @@ logging.basicConfig(
     ]
 )
 
-# === CONFIG (da variabili d'ambiente) ===
+# === CONFIG (da variabili d’ambiente) ===
 API_KEY_MEXC = os.getenv("API_KEY_MEXC")
 SECRET_KEY_MEXC = os.getenv("SECRET_KEY_MEXC")
 API_KEY_LBANK = os.getenv("API_KEY_LBANK")
@@ -30,12 +39,6 @@ SECRET_KEY_LBANK = os.getenv("SECRET_KEY_LBANK")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# Verifica chiavi
-if not all([TELEGRAM_TOKEN, CHAT_ID]):
-    logging.error("❌ Mancano variabili TELEGRAM_TOKEN o CHAT_ID. Impostale su Render.")
-    raise SystemExit("Errore: Variabili Telegram non trovate")
-
-# === TELEGRAM ===
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
@@ -44,14 +47,11 @@ def send_telegram_message(message):
     except Exception as e:
         logging.error(f"Errore Telegram: {e}")
 
-# === MOCK PREZZI (sostituisci con API reali) ===
 def get_prices():
-    # Sostituisci con chiamate reali alle API MEXC / LBank
-    price_mexc = 100.0 + (os.urandom(1)[0] % 10) / 10  # 100.0 - 109.9
+    price_mexc = 100.0 + (os.urandom(1)[0] % 10) / 10
     price_lbank = 100.0 + (os.urandom(1)[0] % 10) / 10
     return price_mexc, price_lbank
 
-# === DASHBOARD ===
 def print_dashboard(price_mexc, price_lbank, spread, alert_msg):
     os.system("clear")
     print(f"{CYAN}╔══════════════════════════════════════════════════╗{RESET}")
@@ -69,8 +69,7 @@ def print_dashboard(price_mexc, price_lbank, spread, alert_msg):
         print("  💤 Nessun alert attivo.")
     print(f"{CYAN}╚══════════════════════════════════════════════════╝{RESET}")
 
-# === MAIN LOOP ===
-def main():
+def run_bot():
     logging.info("✅ Bot futures avviato.")
     send_telegram_message("🚀 Bot futures avviato con successo!")
 
@@ -80,11 +79,10 @@ def main():
         try:
             price_mexc, price_lbank = get_prices()
             spread = ((price_lbank - price_mexc) / price_mexc) * 100
-
             alert_msg = ""
+
             if abs(spread) >= 3:
                 now = time.time()
-                # Evita spam: massimo 1 notifica ogni 10 minuti
                 if now - last_alert_time > 600:
                     alert_msg = f"🚨 Spread {spread:.2f}% tra MEXC ({price_mexc:.2f}) e LBank ({price_lbank:.2f})"
                     logging.info(alert_msg)
@@ -100,4 +98,9 @@ def main():
             time.sleep(10)
 
 if __name__ == "__main__":
-    main()
+    # Avvia il bot in un thread separato
+    threading.Thread(target=run_bot, daemon=True).start()
+
+    # Mantiene la porta aperta (Render richiede una porta web)
+    port = int(os.getenv("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
