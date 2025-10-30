@@ -10,7 +10,6 @@ from rich import box
 from rich.live import Live
 from rich.panel import Panel
 from rich.align import Align
-from rich.plot import Plot
 
 # === CONFIG ===
 API_KEY_MEXC = os.getenv("API_KEY_MEXC", "dummy")
@@ -67,6 +66,16 @@ def get_price_lbank(symbol):
         return None
 
 # === DASHBOARD ===
+def draw_chart(spread_history):
+    """Crea mini-grafici a barre colorate ASCII per i 10 spread principali"""
+    chart_lines = []
+    for sym, values in spread_history.items():
+        bars = "".join("█" if v > 0 else "░" for v in values)
+        chart_lines.append(f"[cyan]{sym:<10}[/cyan] {bars}  {values[-1]:+.2f}%")
+    if not chart_lines:
+        return "Nessun dato storico ancora."
+    return "\n".join(chart_lines)
+
 def create_dashboard(pairs_data, spread_history):
     table = Table(
         title=f"[bold cyan]Futures Arbitrage Dashboard[/bold cyan] — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -82,20 +91,14 @@ def create_dashboard(pairs_data, spread_history):
 
     for sym, pm, pl, spread, action in pairs_data:
         color = "green" if spread > 0 else "red"
-        table.add_row(
-            sym, f"{pm:.4f}", f"{pl:.4f}", f"[{color}]{spread:.2f}%[/{color}]", action
-        )
+        table.add_row(sym, f"{pm:.4f}", f"{pl:.4f}", f"[{color}]{spread:.2f}%[/{color}]", action)
 
-    # Mini chart spread per le 10 coppie principali
-    plot = Plot(width=70, height=15)
-    for sym, history in spread_history.items():
-        plot.add_series(sym, list(history))
-    chart_panel = Panel(Align.center(plot, vertical="middle"), title="📈 Top 10 Spread Trend")
+    chart_text = draw_chart(spread_history)
+    chart_panel = Panel(Align.left(chart_text), title="📈 Top 10 Spread Trend", border_style="cyan")
 
     layout = Table.grid(expand=True)
     layout.add_row(table)
     layout.add_row(chart_panel)
-
     return layout
 
 # === MAIN LOOP ===
@@ -137,7 +140,7 @@ def main():
 
                     # Aggiorna storico spread per grafico (solo prime 10 coppie)
                     if symbol not in spread_history and len(spread_history) < 10:
-                        spread_history[symbol] = deque(maxlen=10)
+                        spread_history[symbol] = deque(maxlen=20)
                     if symbol in spread_history:
                         spread_history[symbol].append(spread)
 
