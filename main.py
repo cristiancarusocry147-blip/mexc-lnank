@@ -11,9 +11,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-# === FLASK SETUP ===
+# === FLASK APP ===
 app = Flask(__name__)
-
 console = Console()
 
 # === LOGGING ===
@@ -41,16 +40,16 @@ SECRET_KEY_LBANK = config.get("LBANK", {}).get("SECRET_KEY", "")
 TELEGRAM_TOKEN = config.get("TELEGRAM", {}).get("TOKEN", "")
 CHAT_ID = config.get("TELEGRAM", {}).get("CHAT_ID", "")
 
-# === TELEGRAM ===
+# === TELEGRAM CONTROL ===
 last_alert_time = {}
 
 def send_telegram_message(message, pair):
-    """Invia messaggio solo se non già inviato di recente"""
+    """Evita spam: 1 messaggio per coppia ogni 30 minuti"""
     now = datetime.now()
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        logging.warning("Telegram non configurato")
+        logging.warning("⚠️ Telegram non configurato")
         return
-    if pair in last_alert_time and now - last_alert_time[pair] < timedelta(minutes=30):
+    if pair in last_alert_time and (now - last_alert_time[pair]) < timedelta(minutes=30):
         return  # evita spam
     try:
         requests.post(
@@ -59,11 +58,11 @@ def send_telegram_message(message, pair):
             timeout=10
         )
         last_alert_time[pair] = now
-        logging.info(f"📨 Notifica Telegram inviata per {pair}")
+        logging.info(f"✅ Notifica Telegram inviata per {pair}")
     except Exception as e:
         logging.error(f"Errore Telegram: {e}")
 
-# === MOCK DATI ===
+# === DATI MOCK ===
 def get_random_price():
     return round(100 + random.uniform(-5, 5), 2)
 
@@ -77,13 +76,13 @@ last_update = None
 # === DASHBOARD CLI ===
 def print_dashboard(pairs_data):
     console.clear()
-    console.rule(f"[bold cyan]📊 Futures Arbitrage Dashboard — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    console.rule(f"[bold cyan]📊 Arbitrage Dashboard — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     table = Table(show_header=True, header_style="bold magenta", style="on black")
-    table.add_column("Coppia", justify="center")
-    table.add_column("MEXC", justify="center")
-    table.add_column("LBank", justify="center")
-    table.add_column("Spread %", justify="center")
-    table.add_column("Azione", justify="center")
+    table.add_column("Coppia")
+    table.add_column("MEXC")
+    table.add_column("LBank")
+    table.add_column("Spread %")
+    table.add_column("Azione")
 
     for pair, mexc, lbank, spread, action in pairs_data[:10]:
         color = "green" if spread > 0 else "red"
@@ -92,7 +91,7 @@ def print_dashboard(pairs_data):
     console.print(table)
     console.print(Panel.fit("🕒 Aggiornamento automatico ogni 10 minuti", style="bold cyan"))
 
-# === LOGICA ARBITRAGGIO ===
+# === LOOP PRINCIPALE ===
 def arbitrage_loop():
     global pairs_data, last_update
     logging.info("🚀 Avvio bot arbitraggio multi-coppia")
@@ -126,7 +125,7 @@ def arbitrage_loop():
 @app.route('/')
 def home():
     if not pairs_data:
-        return "<h3>⏳ In attesa dei primi dati...</h3>"
+        return "<h3 style='color:white;background:black;padding:20px;'>⏳ In attesa dei primi dati...</h3>"
     html = f"""
     <html>
     <head>
@@ -138,24 +137,24 @@ def home():
                 font-family: 'Consolas', monospace;
                 padding: 20px;
             }}
+            h1 {{ color: #58a6ff; }}
             table {{
                 width: 100%;
                 border-collapse: collapse;
+                margin-top: 20px;
             }}
             th, td {{
                 padding: 10px;
                 text-align: center;
                 border-bottom: 1px solid #30363d;
             }}
-            th {{
-                color: #58a6ff;
-            }}
+            th {{ color: #58a6ff; }}
             .green {{ color: #3fb950; }}
             .red {{ color: #f85149; }}
         </style>
     </head>
     <body>
-        <h1>📊 Arbitrage Dashboard</h1>
+        <h1>📊 Futures Arbitrage Dashboard</h1>
         <p>Ultimo aggiornamento: {last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else 'N/A'}</p>
         <table>
             <tr><th>Coppia</th><th>MEXC</th><th>LBank</th><th>Spread %</th><th>Azione</th></tr>
@@ -170,10 +169,12 @@ def home():
 # === AVVIO ===
 def start_flask():
     port = int(os.environ.get("PORT", 10000))
+    logging.info(f"🌐 Web dashboard attiva su porta {port}")
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    Thread(target=arbitrage_loop, daemon=True).start()
+    t = Thread(target=arbitrage_loop, daemon=True)
+    t.start()
     start_flask()
 
 
