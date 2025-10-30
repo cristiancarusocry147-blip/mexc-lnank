@@ -66,7 +66,7 @@ def send_telegram_message(message, pair):
 def get_common_pairs():
     """Recupera coppie comuni tra futures perpetual di MEXC e LBank con retry e controllo JSON"""
     mexc_url = "https://contract.mexc.com/api/v1/contract/detail"
-    lbank_url = "https://www.lbkex.net/v2/futures/contracts.do"
+    lbank_url = "https://api.lbkex.net/v2/futures/contracts.do"
 
     for attempt in range(3):
         try:
@@ -224,6 +224,7 @@ if __name__ == "__main__":
     t = Thread(target=arbitrage_loop, daemon=True)
     t.start()
     start_flask()
+
 
 
 
